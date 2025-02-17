@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Image Enhancer – Без пикселизации</title>
+  <style>
+    /* Основные переменные и стили */
+    :root {
+      --bg-color: #eef2f7;
+      --panel-bg: #ffffff;
+      --text-color: #333;
+      --accent-color: #0077ff;
+      --border-color: #e0e0e0;
+      --shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      --transition: 0.4s ease;
+    }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: var(--bg-color);
+      color: var(--text-color);
+    }
+    .container {
+      max-width: 1200px;
+      margin: 30px auto;
+      padding: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+    /* Левая колонка – холсты */
+    .canvas-container {
+      flex: 1 1 500px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .canvas-box {
+      background: var(--panel-bg);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+      padding: 15px;
+      transition: transform var(--transition);
+    }
+    .canvas-box:hover {
+      transform: translateY(-3px);
+    }
+    .canvas-box h3 {
+      margin: 0 0 10px;
+      text-align: center;
+      font-size: 1.1em;
+    }
+    canvas {
+      width: 100%;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: #fff;
+      opacity: 0;
+      transition: opacity var(--transition);
+    }
+    canvas.visible {
+      opacity: 1;
+    }
+    /* Правая колонка – панель инструментов */
+    .tools-panel {
+      flex: 1 1 300px;
+      background: var(--panel-bg);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .tools-panel h2 {
+      margin: 0;
+      text-align: center;
+      font-size: 1.4em;
+      color: var(--accent-color);
+    }
+    .tools-panel input[type="file"] {
+      padding: 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: #fafafa;
+    }
+    .slider-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .slider-group label {
+      font-weight: bold;
+    }
+    .slider-group input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 6px;
+      border-radius: 3px;
+      background: #ddd;
+      outline: none;
+      transition: background 0.3s;
+    }
+    .slider-group input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent-color);
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .slider-group input[type="range"]:active::-webkit-slider-thumb {
+      transform: scale(1.2);
+    }
+    .tools-panel button {
+      background: var(--accent-color);
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      padding: 12px;
+      font-size: 1em;
+      cursor: pointer;
+      transition: background 0.3s, transform 0.2s;
+    }
+    .tools-panel button:hover:not(:disabled) {
+      background: #005fcc;
+      transform: translateY(-2px);
+    }
+    .tools-panel button:disabled {
+      background: #aaa;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .resolution-info {
+      background: #f7f7f7;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 10px;
+      text-align: center;
+      font-size: 0.95em;
+      color: #555;
+    }
+    @media (max-width: 800px) {
+      .container {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Левая колонка: холсты "До" и "После" -->
+    <div class="canvas-container">
+      <div class="canvas-box">
+        <h3>До</h3>
+        <canvas id="beforeCanvas"></canvas>
+      </div>
+      <div class="canvas-box">
+        <h3>После</h3>
+        <canvas id="afterCanvas"></canvas>
+      </div>
+    </div>
+    <!-- Правая колонка: панель инструментов -->
+    <div class="tools-panel">
+      <h2>Инструменты</h2>
+      <input type="file" id="fileInput" accept="image/*">
+      <!-- Единственный ручной параметр: множитель улучшения -->
+      <div class="slider-group">
+        <label for="multiplierRange">Множитель улучшения: <span id="multiplierVal">1</span>x</label>
+        <input type="range" id="multiplierRange" min="1" max="10" step="1" value="1">
+      </div>
+      <button id="enhanceBtn" disabled>Улучшить изображение (AI)</button>
+      <button id="downloadBtn" disabled>Скачать улучшенное изображение</button>
+      <div class="resolution-info">
+        <p><strong>Разрешение:</strong></p>
+        <p>До: <span id="beforeRes">-</span></p>
+        <p>После: <span id="afterRes">-</span></p>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Элементы интерфейса
+    const fileInput = document.getElementById('fileInput');
+    const beforeCanvas = document.getElementById('beforeCanvas');
+    const afterCanvas = document.getElementById('afterCanvas');
+    const enhanceBtn = document.getElementById('enhanceBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const multiplierRange = document.getElementById('multiplierRange');
+    const multiplierVal = document.getElementById('multiplierVal');
+    const beforeRes = document.getElementById('beforeRes');
+    const afterRes = document.getElementById('afterRes');
+    
+    let originalImage = new Image();
+    let enhancedImageDataURL = null;
+    
+    // Обновление отображения множителя
+    multiplierRange.addEventListener('input', () => {
+      multiplierVal.textContent = multiplierRange.value;
+    });
+    
+    // Загрузка изображения
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        originalImage = new Image();
+        originalImage.onload = () => {
+          beforeCanvas.width = originalImage.width;
+          beforeCanvas.height = originalImage.height;
+          const ctxBefore = beforeCanvas.getContext('2d');
+          ctxBefore.clearRect(0, 0, beforeCanvas.width, beforeCanvas.height);
+          ctxBefore.drawImage(originalImage, 0, 0);
+          beforeCanvas.classList.add('visible');
+          beforeRes.textContent = `${originalImage.width} x ${originalImage.height}`;
+          
+          afterCanvas.width = originalImage.width;
+          afterCanvas.height = originalImage.height;
+          const ctxAfter = afterCanvas.getContext('2d');
+          ctxAfter.clearRect(0, 0, afterCanvas.width, afterCanvas.height);
+          afterCanvas.classList.remove('visible');
+          afterRes.textContent = '-';
+          
+          enhanceBtn.disabled = false;
+          downloadBtn.disabled = true;
+        };
+        originalImage.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+    
+    // Авто-коррекция: растяжение гистограммы по каждому каналу
+    function autoContrast(imageData) {
+      const data = imageData.data;
+      const channels = [[], [], []]; // R, G, B
+      for (let i = 0; i < data.length; i += 4) {
+        channels[0].push(data[i]);
+        channels[1].push(data[i+1]);
+        channels[2].push(data[i+2]);
+      }
+      const minVals = channels.map(arr => Math.min(...arr));
+      const maxVals = channels.map(arr => Math.max(...arr));
+      
+      for (let i = 0; i < data.length; i += 4) {
+        for (let c = 0; c < 3; c++) {
+          const val = data[i + c];
+          const minVal = minVals[c];
+          const maxVal = maxVals[c];
+          if (maxVal - minVal !== 0) {
+            data[i + c] = ((val - minVal) * 255) / (maxVal - minVal);
+          }
+        }
+      }
+      return imageData;
+    }
+    
+    // Билатеральный фильтр для денойзинга (с сохранением деталей)
+    function bilateralFilter(imageData, diameter = 5, sigmaColor = 25, sigmaSpace = 25) {
+      const width = imageData.width, height = imageData.height;
+      const src = imageData.data;
+      const output = new Uint8ClampedArray(src.length);
+      const half = Math.floor(diameter / 2);
+      
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const idx = (y * width + x) * 4;
+          const centerR = src[idx], centerG = src[idx+1], centerB = src[idx+2];
+          let sumR = 0, sumG = 0, sumB = 0, sumW = 0;
+          for (let j = -half; j <= half; j++) {
+            for (let i = -half; i <= half; i++) {
+              const xi = x + i, yj = y + j;
+              if (xi >= 0 && xi < width && yj >= 0 && yj < height) {
+                const nIdx = (yj * width + xi) * 4;
+                const r = src[nIdx], g = src[nIdx+1], b = src[nIdx+2];
+                const spatialDist2 = i * i + j * j;
+                const colorDist2 = (r - centerR) ** 2 + (g - centerG) ** 2 + (b - centerB) ** 2;
+                const weight = Math.exp( - ( spatialDist2/(2*sigmaSpace*sigmaSpace) + colorDist2/(2*sigmaColor*sigmaColor) ) );
+                sumR += r * weight;
+                sumG += g * weight;
+                sumB += b * weight;
+                sumW += weight;
+              }
+            }
+          }
+          output[idx]   = sumR / sumW;
+          output[idx+1] = sumG / sumW;
+          output[idx+2] = sumB / sumW;
+          output[idx+3] = src[idx+3];
+        }
+      }
+      for (let i = 0; i < output.length; i++) {
+        imageData.data[i] = output[i];
+      }
+      return imageData;
+    }
+    
+    // Лёгкий фильтр резкости (3x3) с фиксированным коэффициентом
+    function sharpenFilter(imageData) {
+      const width = imageData.width, height = imageData.height;
+      const src = imageData.data;
+      const output = new Uint8ClampedArray(src.length);
+      const kernel = [
+        [0, -0.5, 0],
+        [-0.5, 3, -0.5],
+        [0, -0.5, 0]
+      ];
+      const kHalf = 1;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          let sumR = 0, sumG = 0, sumB = 0;
+          for (let j = -kHalf; j <= kHalf; j++) {
+            for (let i = -kHalf; i <= kHalf; i++) {
+              const posX = x + i, posY = y + j;
+              if (posX >= 0 && posX < width && posY >= 0 && posY < height) {
+                const idx = ((posY * width) + posX) * 4;
+                const weight = kernel[j + kHalf][i + kHalf];
+                sumR += src[idx] * weight;
+                sumG += src[idx+1] * weight;
+                sumB += src[idx+2] * weight;
+              }
+            }
+          }
+          const idx = (y * width + x) * 4;
+          output[idx]   = Math.min(255, Math.max(0, sumR));
+          output[idx+1] = Math.min(255, Math.max(0, sumG));
+          output[idx+2] = Math.min(255, Math.max(0, sumB));
+          output[idx+3] = src[idx+3];
+        }
+      }
+      for (let i = 0; i < output.length; i++) {
+        imageData.data[i] = output[i];
+      }
+      return imageData;
+    }
+    
+    // Гауссов фильтр для сглаживания (устранение пикселизации)
+    // Оптимизирован: ядро считается один раз и затем используется для каждого пикселя.
+    function gaussianBlurFilter(imageData, radius = 1, sigma = 1.5) {
+      const width = imageData.width, height = imageData.height;
+      const src = imageData.data;
+      const output = new Uint8ClampedArray(src.length);
+      const kernelSize = 2 * radius + 1;
+      const kernel = [];
+      let sum = 0;
+      for (let j = -radius; j <= radius; j++) {
+        for (let i = -radius; i <= radius; i++) {
+          const weight = Math.exp(-(i * i + j * j) / (2 * sigma * sigma));
+          kernel.push(weight);
+          sum += weight;
+        }
+      }
+      // Нормализация ядра
+      for (let k = 0; k < kernel.length; k++) {
+        kernel[k] /= sum;
+      }
+      
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          let r = 0, g = 0, b = 0, a = 0;
+          let k = 0;
+          for (let j = -radius; j <= radius; j++) {
+            for (let i = -radius; i <= radius; i++) {
+              const xi = Math.min(width - 1, Math.max(0, x + i));
+              const yj = Math.min(height - 1, Math.max(0, y + j));
+              const idx = (yj * width + xi) * 4;
+              const weight = kernel[k++];
+              r += src[idx] * weight;
+              g += src[idx+1] * weight;
+              b += src[idx+2] * weight;
+              a += src[idx+3] * weight;
+            }
+          }
+          const idx = (y * width + x) * 4;
+          output[idx] = r;
+          output[idx+1] = g;
+          output[idx+2] = b;
+          output[idx+3] = a;
+        }
+      }
+      for (let i = 0; i < src.length; i++) {
+        imageData.data[i] = output[i];
+      }
+      return imageData;
+    }
+    
+    // Основная функция авто‑улучшения:
+    // 1. Авто‑коррекция (растяжение гистограммы)
+    // 2. Денойзинг (билатеральный фильтр)
+    // 3. Усиление резкости
+    // 4. Масштабирование с последующим Гауссовым сглаживанием для устранения пикселизации
+    function autoEnhance() {
+      if (!originalImage.src) return;
+      const ctxBefore = beforeCanvas.getContext('2d');
+      let imageData = ctxBefore.getImageData(0, 0, beforeCanvas.width, beforeCanvas.height);
+      
+      imageData = autoContrast(imageData);
+      imageData = bilateralFilter(imageData, 5, 25, 25);
+      imageData = sharpenFilter(imageData);
+      
+      const multiplier = parseInt(multiplierRange.value, 10);
+      if (multiplier > 1) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = imageData.width;
+        tempCanvas.height = imageData.height;
+        tempCanvas.getContext('2d').putImageData(imageData, 0, 0);
+        
+        const newWidth = imageData.width * multiplier;
+        const newHeight = imageData.height * multiplier;
+        afterCanvas.width = newWidth;
+        afterCanvas.height = newHeight;
+        const ctxAfter = afterCanvas.getContext('2d');
+        ctxAfter.imageSmoothingEnabled = true;
+        ctxAfter.imageSmoothingQuality = 'high';
+        ctxAfter.clearRect(0, 0, newWidth, newHeight);
+        ctxAfter.drawImage(tempCanvas, 0, 0, newWidth, newHeight);
+        afterRes.textContent = `${newWidth} x ${newHeight}`;
+        
+        let scaledData = ctxAfter.getImageData(0, 0, newWidth, newHeight);
+        scaledData = gaussianBlurFilter(scaledData, 1, 1.5);
+        scaledData = sharpenFilter(scaledData);
+        ctxAfter.putImageData(scaledData, 0, 0);
+      } else {
+        afterCanvas.width = imageData.width;
+        afterCanvas.height = imageData.height;
+        const ctxAfter = afterCanvas.getContext('2d');
+        ctxAfter.putImageData(imageData, 0, 0);
+        afterRes.textContent = `${imageData.width} x ${imageData.height}`;
+      }
+      afterCanvas.classList.add('visible');
+      enhancedImageDataURL = afterCanvas.toDataURL();
+      downloadBtn.disabled = false;
+    }
+    
+    enhanceBtn.addEventListener('click', () => {
+      enhanceBtn.disabled = true;
+      setTimeout(() => {
+        autoEnhance();
+        enhanceBtn.disabled = false;
+      }, 300);
+    });
+    
+    downloadBtn.addEventListener('click', () => {
+      if (!enhancedImageDataURL) return;
+      const link = document.createElement('a');
+      link.href = enhancedImageDataURL;
+      link.download = 'enhanced_image.png';
+      link.click();
+    });
+  </script>
+</body>
+</html>
