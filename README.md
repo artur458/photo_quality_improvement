@@ -39,4 +39,4 @@
 
 1. Клонируйте репозиторий:
    ```bash
-   git clone https://github.com/yourusername/ai-image-enhancer.git
+   git clone https://github.com/artur458/photo_quality_improvement.git
